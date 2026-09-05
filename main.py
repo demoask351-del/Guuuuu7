@@ -1,6 +1,4 @@
 import sqlite3
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot import types
 
@@ -16,7 +14,6 @@ REQUIRED_CHANNELS = [
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# --- DATABASE SETUP ---
 conn = sqlite3.connect("promotion.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, coins INTEGER DEFAULT 30, referred_by INTEGER DEFAULT 0, is_verified INTEGER DEFAULT 0)")
@@ -56,7 +53,7 @@ def force_markup():
     kb = types.InlineKeyboardMarkup(row_width=1)
     for ch in REQUIRED_CHANNELS:
         kb.add(types.InlineKeyboardButton(f"📢 Join {ch['name']}", url=f"https://t.me/{ch['username'].replace('@','')}"))
-    kb.add(types.InlineKeyboardButton("✨ Verify & Unlock Bot", callback_data="check_force"))
+    kb.add(types.InlineKeyboardButton("✨ Verify Channels", callback_data="check_force"))
     return kb
 
 def menu(uid):
@@ -64,29 +61,17 @@ def menu(uid):
     jr = get_setting('join_reward', 15)
     rr = get_setting('refer_reward', 20)
     cp = get_setting('cost_per_member', 15)
-    
-    txt = (
-        "╔════════════════════════╗\n"
-        "   🚀 <b>ADVANCED PROMO NETWORK</b> 🚀\n"
-        "╚════════════════════════╝\n"
-        f"💎 <b>Wallet Balance:</b> <code>{coins} Coins</code>\n"
-        "────────────────────────\n"
-        f"🎁 <b>Per Join Reward:</b> <code>+{jr} Coins</code>\n"
-        f"👥 <b>Per Refer Bonus:</b> <code>+{rr} Coins</code>\n"
-        f"⚡ <b>Campaign Cost:</b> <code>{cp} Coins / Sub</code>\n"
-        "────────────────────────\n"
-        "<i>Apne channels promote karein aur organic members payein!</i>"
-    )
+    txt = f"⚡ <b>PROMO BOOST NETWORK</b> ⚡\n\n💎 <b>Balance:</b> <code>{coins} Coins</code>\n🎁 <b>Per Join:</b> +{jr} Coins\n👥 <b>Per Refer:</b> +{rr} Coins\n🚀 <b>Promo Cost:</b> {cp} Coins/Sub"
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("🎯 Earn Coins", callback_data="earn_0"),
         types.InlineKeyboardButton("📢 Promote Channel", callback_data="add_camp"),
         types.InlineKeyboardButton("👥 Refer & Earn", callback_data="ref_sys"),
-        types.InlineKeyboardButton("📊 My Account", callback_data="my_stats"),
-        types.InlineKeyboardButton("🔄 Refresh Stats", callback_data="refresh")
+        types.InlineKeyboardButton("📊 Dashboard", callback_data="my_stats"),
+        types.InlineKeyboardButton("🔄 Refresh", callback_data="refresh")
     )
     if int(uid) == ADMIN_ID:
-        kb.add(types.InlineKeyboardButton("⚡ Master Admin Console ⚡", callback_data="adm_panel"))
+        kb.add(types.InlineKeyboardButton("⚡ Admin Panel ⚡", callback_data="adm_panel"))
     return txt, kb
 
 @bot.message_handler(commands=['start'])
@@ -102,22 +87,13 @@ def start_cmd(m):
                 ref = val
         except Exception:
             pass
-            
     c.execute("SELECT user_id FROM users WHERE user_id=?", (uid,))
     if not c.fetchone():
         c.execute("INSERT INTO users (user_id, name, coins, referred_by, is_verified) VALUES (?, ?, 30, ?, 0)", (uid, name, ref))
         conn.commit()
-        
     if not check_channels(uid):
-        txt = (
-            "╔════════════════════════╗\n"
-            "   🔒 <b>ACCESS RESTRICTED</b> 🔒\n"
-            "╚════════════════════════╝\n"
-            "Bot ke sabhi features unlock karne ke liye niche diye gaye <b>Mandatory Channels</b> ko join karein:"
-        )
-        bot.send_message(m.chat.id, txt, reply_markup=force_markup())
+        bot.send_message(m.chat.id, "🔒 <b>Pehle ye channels join karein:</b>", reply_markup=force_markup())
         return
-        
     t, k = menu(uid)
     bot.send_message(m.chat.id, t, reply_markup=k)
 
@@ -134,25 +110,19 @@ def verify_force(call):
                 reward = get_setting('refer_reward', 20)
                 c.execute("UPDATE users SET coins=coins+? WHERE user_id=?", (reward, ref_by))
                 try:
-                    bot.send_message(ref_by, f"🎉 <b>Referral Verified!</b>\nAapke dost ne join kiya: <b>+{reward} Coins</b> add ho gaye!")
+                    bot.send_message(ref_by, f"🎉 Referral verified! +{reward} Coins added.")
                 except Exception:
                     pass
             conn.commit()
-        bot.answer_callback_query(call.id, "✅ Verification Successful!")
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
+        bot.answer_callback_query(call.id, "✅ Verified!")
+        bot.delete_message(call.message.chat.id, call.message.message_id)
         t, k = menu(uid)
         bot.send_message(call.message.chat.id, t, reply_markup=k)
     else:
-        bot.answer_callback_query(call.id, "❌ Saare channels join nahi hue! Pehle join karein.", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Saare channel join karo pehle!", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data == "refresh")
 def ref_call(call):
-    if not check_channels(call.from_user.id):
-        bot.send_message(call.message.chat.id, "🔒 Pehle channels join karein:", reply_markup=force_markup())
-        return
     t, k = menu(call.from_user.id)
     try:
         bot.edit_message_text(t, call.message.chat.id, call.message.message_id, reply_markup=k)
@@ -164,17 +134,8 @@ def ref_show(call):
     uid = call.from_user.id
     rr = get_setting('refer_reward', 20)
     link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
-    txt = (
-        "╔════════════════════════╗\n"
-        "   👥 <b>REFER & EARN SYSTEM</b>\n"
-        "╚════════════════════════╝\n"
-        f"🎁 <b>Per Verified Invite:</b> <code>+{rr} Coins</code>\n"
-        "────────────────────────\n"
-        "🔗 <b>Aapka Personal Link:</b>\n"
-        f"<code>{link}</code>\n\n"
-        "<i>Apne doston ke sath share karein aur unlimited coins earn karein!</i>"
-    )
-    kb = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="refresh"))
+    txt = f"👥 <b>REFER & EARN</b>\n\nReward: <b>+{rr} Coins</b>\n\n🔗 <code>{link}</code>"
+    kb = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="refresh"))
     bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=kb)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("earn_"))
@@ -186,35 +147,18 @@ def earn_sys(call):
     task = c.fetchone()
     c.execute("SELECT COUNT(*) FROM campaigns WHERE status='ACTIVE' AND owner_id!=? AND id NOT IN (SELECT campaign_id FROM history WHERE user_id=?)", (uid, uid))
     tot = c.fetchone()[0]
-    
     if not task or offset >= tot:
-        empty_text = (
-            "╔════════════════════════╗\n"
-            "   ✨ <b>ALL TASKS COMPLETED</b> ✨\n"
-            "╚════════════════════════╝\n"
-            "Filhal sabhi channels complete ho chuke hain.\n"
-            "Naye campaigns aate hi yahan live ho jayenge!"
-        )
-        bot.edit_message_text(empty_text, call.message.chat.id, call.message.message_id, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="refresh")))
+        bot.edit_message_text("✨ <b>Saare tasks complete ho gaye!</b>", call.message.chat.id, call.message.message_id, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="refresh")))
         return
-        
     camp_id, ch_u = task
     clean = ch_u.replace("@", "")
-    card = (
-        f"🎯 <b>TASK QUEUE: [{offset+1}/{tot}]</b>\n"
-        "────────────────────────\n"
-        f"📢 <b>Channel:</b> <code>@{clean}</code>\n"
-        f"💰 <b>Reward:</b> <code>+{jr} Coins</code>\n"
-        "────────────────────────\n"
-        "1. Open karke channel join karein.\n"
-        "2. Wapas aakar Verify par tap karein."
-    )
+    card = f"🎯 <b>Task ({offset+1}/{tot})</b>\n\nChannel: @{clean}\nReward: +{jr} Coins"
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
-        types.InlineKeyboardButton("🔗 Open Channel", url=f"https://t.me/{clean}"),
-        types.InlineKeyboardButton("✅ Verify Join", callback_data=f"v_{camp_id}_{clean}_{offset}")
+        types.InlineKeyboardButton("🔗 Open", url=f"https://t.me/{clean}"),
+        types.InlineKeyboardButton("✅ Verify", callback_data=f"v_{camp_id}_{clean}_{offset}")
     )
-    kb.add(types.InlineKeyboardButton("➡️ Next Channel", callback_data=f"earn_{offset+1}"), types.InlineKeyboardButton("🔙 Back", callback_data="refresh"))
+    kb.add(types.InlineKeyboardButton("➡️ Next", callback_data=f"earn_{offset+1}"), types.InlineKeyboardButton("🔙 Back", callback_data="refresh"))
     bot.edit_message_text(card, call.message.chat.id, call.message.message_id, reply_markup=kb)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("v_"))
@@ -227,7 +171,7 @@ def v_task(call):
         if m.status in ['member', 'administrator', 'creator']:
             c.execute("SELECT 1 FROM history WHERE user_id=? AND campaign_id=?", (uid, camp_id))
             if c.fetchone():
-                bot.answer_callback_query(call.id, "Reward pehle hi claim ho chuka hai!", show_alert=True)
+                bot.answer_callback_query(call.id, "Already Claimed!")
                 return
             c.execute("UPDATE users SET coins=coins+? WHERE user_id=?", (jr, uid))
             c.execute("INSERT INTO history VALUES (?, ?)", (uid, camp_id))
@@ -237,24 +181,17 @@ def v_task(call):
             if inf and inf[3] >= inf[2]:
                 c.execute("UPDATE campaigns SET status='COMPLETED' WHERE id=?", (camp_id,))
                 try:
-                    bot.send_message(
-                        inf[0], 
-                        f"🎉 <b>PROMOTION TARGET REACHED!</b>\n"
-                        "────────────────────────\n"
-                        f"📢 Channel: <b>{inf[1]}</b>\n"
-                        f"👥 Target: <b>{inf[3]}/{inf[2]} Members</b>\n\n"
-                        "Aapka campaign successfully finish ho chuka hai!"
-                    )
+                    bot.send_message(inf[0], f"🎉 Target complete for {inf[1]} ({inf[3]}/{inf[2]})")
                 except Exception:
                     pass
             conn.commit()
-            bot.answer_callback_query(call.id, f"🎉 Verified! +{jr} Coins added!", show_alert=True)
+            bot.answer_callback_query(call.id, f"✅ +{jr} Coins added!", show_alert=True)
             call.data = f"earn_{offset}"
             earn_sys(call)
         else:
-            bot.answer_callback_query(call.id, "❌ Channel join nahi mila! Pehle join karein.", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Join nahi kiya!", show_alert=True)
     except Exception:
-        bot.answer_callback_query(call.id, "⚠️ Verification error. Channel settings check karein.", show_alert=True)
+        bot.answer_callback_query(call.id, "⚠️ Verification error.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_camp")
 def add_camp(call):
@@ -263,30 +200,24 @@ def add_camp(call):
     if get_coins(uid) < cost:
         bot.answer_callback_query(call.id, f"Kam se kam {cost} coins chahiye!", show_alert=True)
         return
-    text = (
-        "⚙️ <b>PROMOTION SETUP:</b>\n"
-        "────────────────────────\n"
-        f"1. Bot <code>@{BOT_USERNAME}</code> ko channel me <b>ADMIN</b> banayein.\n"
-        "2. Public Username format me bhejein (Example: <code>@MyChannel</code>):"
-    )
-    msg = bot.send_message(call.message.chat.id, text)
+    msg = bot.send_message(call.message.chat.id, f"1. Bot @{BOT_USERNAME} ko channel me ADMIN banao.\n2. Username bhejo (@MyChannel):")
     bot.register_next_step_handler(msg, step_verify_admin)
 
 def step_verify_admin(m):
     ch_u = m.text.strip()
     if not ch_u.startswith("@"):
-        bot.send_message(m.chat.id, "❌ Format galat hai! '@' se start karein.")
+        bot.send_message(m.chat.id, "❌ '@' se likho.")
         return
     try:
         b = bot.get_chat_member(ch_u, bot.get_me().id)
         if b.status != "administrator":
-            bot.send_message(m.chat.id, "❌ Bot channel me Admin nahi hai! Pehle Admin banayein.")
+            bot.send_message(m.chat.id, "❌ Bot Admin nahi hai!")
             return
     except Exception:
-        bot.send_message(m.chat.id, "❌ Bot channel read nahi kar pa raha. Channel Public ho aur bot Admin ho.")
+        bot.send_message(m.chat.id, "❌ Bot channel read nahi kar pa raha.")
         return
     cost = get_setting('cost_per_member', 15)
-    msg = bot.send_message(m.chat.id, f"✅ <b>Channel Verified!</b>\nKitne subscribers chahiye? (1 = <code>{cost} Coins</code>):")
+    msg = bot.send_message(m.chat.id, f"✅ Verified! Kitne members chahiye? (1 = {cost} Coins):")
     bot.register_next_step_handler(msg, step_save_camp, ch_u)
 
 def step_save_camp(m, ch_u):
@@ -296,16 +227,16 @@ def step_save_camp(m, ch_u):
         tot = cnt * cost
         uid = m.from_user.id
         if get_coins(uid) < tot:
-            bot.send_message(m.chat.id, f"❌ Insufficient Coins! Chahiye: <code>{tot} Coins</code>.")
+            bot.send_message(m.chat.id, f"❌ Balance kam hai! Chahiye: {tot}")
             return
         c.execute("UPDATE users SET coins=coins-? WHERE user_id=?", (tot, uid))
         c.execute("INSERT INTO campaigns (owner_id, channel_username, needed_joins) VALUES (?, ?, ?)", (uid, ch_u, cnt))
         conn.commit()
-        bot.send_message(m.chat.id, f"🚀 <b>Campaign Live!</b>\nTarget: <code>{cnt} Members</code>. Pura hone par DM me notification mil jayega.")
+        bot.send_message(m.chat.id, f"🚀 Campaign Live: {cnt} members")
         t, k = menu(uid)
         bot.send_message(m.chat.id, t, reply_markup=k)
     except Exception:
-        bot.send_message(m.chat.id, "❌ Valid number enter karein!")
+        bot.send_message(m.chat.id, "❌ Invalid number.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "my_stats")
 def stats_show(call):
@@ -315,16 +246,8 @@ def stats_show(call):
     j = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM users WHERE referred_by=? AND is_verified=1", (uid,))
     r = c.fetchone()[0]
-    txt = (
-        "╔════════════════════════╗\n"
-        "   📊 <b>ACCOUNT PERFORMANCE</b>\n"
-        "╚════════════════════════╝\n"
-        f"💎 <b>Current Balance:</b> <code>{coins} Coins</code>\n"
-        f"👥 <b>Active Referrals:</b> <code>{r}</code>\n"
-        f"✅ <b>Completed Channels:</b> <code>{j}</code>\n"
-        "────────────────────────"
-    )
-    bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="refresh")))
+    txt = f"📊 <b>STATS</b>\n\n💰 Coins: {coins}\n👥 Referrals: {r}\n✅ Joined: {j}"
+    bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="refresh")))
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_panel")
 def adm_panel(call):
@@ -334,28 +257,14 @@ def adm_panel(call):
     u_c = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM campaigns WHERE status='ACTIVE'")
     c_c = c.fetchone()[0]
-    j = get_setting("join_reward", 15)
-    r = get_setting("refer_reward", 20)
-    cost = get_setting("cost_per_member", 15)
-    txt = (
-        "╔════════════════════════╗\n"
-        "   ⚡ <b>MASTER ADMIN CONSOLE</b> ⚡\n"
-        "╚════════════════════════╝\n"
-        f"👥 <b>Total Users:</b> <code>{u_c}</code>\n"
-        f"📢 <b>Active Campaigns:</b> <code>{c_c}</code>\n"
-        "────────────────────────\n"
-        f"• Join: <code>{j}</code> | Refer: <code>{r}</code> | Cost: <code>{cost}</code>\n"
-        "────────────────────────"
-    )
+    txt = f"⚡ <b>ADMIN CONSOLE</b> ⚡\n\nUsers: {u_c} | Campaigns: {c_c}"
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("🎁 Gift Coins", callback_data="adm_gift"),
         types.InlineKeyboardButton("📢 Broadcast", callback_data="adm_broad"),
         types.InlineKeyboardButton("✏️ Join Reward", callback_data="adm_j"),
         types.InlineKeyboardButton("✏️ Refer Reward", callback_data="adm_r"),
-        types.InlineKeyboardButton("📋 Campaigns", callback_data="adm_camps"),
-        types.InlineKeyboardButton("📊 User Activity", callback_data="adm_users"),
-        types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="refresh")
+        types.InlineKeyboardButton("🔙 Back", callback_data="refresh")
     )
     bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=kb)
 
@@ -363,7 +272,7 @@ def adm_panel(call):
 def adm_gift_step(call):
     if int(call.from_user.id) != ADMIN_ID:
         return
-    msg = bot.send_message(ADMIN_ID, "🎁 <b>Gift Coins Console:</b>\nFormat bhejein: <code>UserID Coins</code>\nExample: <code>7161571409 100</code>")
+    msg = bot.send_message(ADMIN_ID, "Format: <code>UserID Coins</code> (Example: <code>7161571409 50</code>):")
     bot.register_next_step_handler(msg, process_gift)
 
 def process_gift(m):
@@ -373,18 +282,18 @@ def process_gift(m):
         c.execute("UPDATE users SET coins=coins+? WHERE user_id=?", (amt, target))
         conn.commit()
         try:
-            bot.send_message(target, f"🎉 <b>ADMIN BONUS RECEIVED!</b>\nAdmin ne aapke wallet me <b>+{amt} Coins</b> credit kiye hain!")
+            bot.send_message(target, f"🎉 Admin ne aapko +{amt} coins diye!")
         except Exception:
             pass
-        bot.send_message(ADMIN_ID, f"✅ Successfully added {amt} coins to <code>{target}</code>")
+        bot.send_message(ADMIN_ID, f"✅ Credited {amt} coins to {target}")
     except Exception:
-        bot.send_message(ADMIN_ID, "❌ Format galat tha! Example: <code>7161571409 50</code>")
+        bot.send_message(ADMIN_ID, "❌ Format galat tha.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_broad")
 def adm_broad_step(call):
     if int(call.from_user.id) != ADMIN_ID:
         return
-    msg = bot.send_message(ADMIN_ID, "📢 <b>Global Broadcast Console:</b>\nSabhi users ko jo message bhejna hai, wo type karke bhejein:")
+    msg = bot.send_message(ADMIN_ID, "Broadcast message likho:")
     bot.register_next_step_handler(msg, process_broad)
 
 def process_broad(m):
@@ -393,44 +302,48 @@ def process_broad(m):
     cnt = 0
     for u in users:
         try:
-            bot.send_message(u[0], f"📢 <b>ANNOUNCEMENT FROM ADMIN:</b>\n────────────────────────\n\n{m.text}")
+            bot.send_message(u[0], f"📢 <b>ADMIN:</b>\n\n{m.text}")
             cnt += 1
         except Exception:
             pass
-    bot.send_message(ADMIN_ID, f"✅ Broadcast successfully sent to <b>{cnt}</b> users.")
+    bot.send_message(ADMIN_ID, f"✅ Broadcast sent to {cnt} users.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_j")
 def adm_j_set(call):
     if int(call.from_user.id) != ADMIN_ID:
         return
-    msg = bot.send_message(ADMIN_ID, "Naya Join Reward amount dalein:")
+    msg = bot.send_message(ADMIN_ID, "Naya Join Reward amount:")
     bot.register_next_step_handler(msg, lambda m: save_rate_key(m, "join_reward"))
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_r")
 def adm_r_set(call):
     if int(call.from_user.id) != ADMIN_ID:
         return
-    msg = bot.send_message(ADMIN_ID, "Naya Refer Reward amount dalein:")
+    msg = bot.send_message(ADMIN_ID, "Naya Refer Reward amount:")
     bot.register_next_step_handler(msg, lambda m: save_rate_key(m, "refer_reward"))
 
 def save_rate_key(m, key):
     try:
         v = int(m.text.strip())
         set_setting(key, v)
-        bot.send_message(ADMIN_ID, f"✅ <code>{key}</code> updated to <b>{v} Coins</b>.")
+        bot.send_message(ADMIN_ID, f"✅ {key} set to {v}")
     except Exception:
-        bot.send_message(ADMIN_ID, "❌ Invalid number enter kiya gaya hai!")
+        bot.send_message(ADMIN_ID, "❌ Invalid number.")
 
-@bot.callback_query_handler(func=lambda call: call.data == "adm_camps")
-def view_camps(call):
-    if int(call.from_user.id) != ADMIN_ID:
-        return
-    c.execute("SELECT id, channel_username, owner_id, current_joins, needed_joins, status FROM campaigns ORDER BY id DESC LIMIT 10")
-    camps = c.fetchall()
-    txt = "📢 <b>RECENT CAMPAIGNS QUEUE:</b>\n────────────────────────\n"
-    for cp in camps:
-        txt += f"<b>#{cp[0]}</b> <code>{cp[1]}</code>\n👤 Owner: <code>{cp[2]}</code> | Progress: <b>{cp[3]}/{cp[4]}</b> | <b>{cp[5]}</b>\n\n"
-    kb = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Admin", callback_data="adm_panel"))
-    bot.edit_message_text(txt if camps else "Koi campaign active nahi hai.", call.message.chat.id, call.message.message_id, reply_markup=kb)
+print("Bot started...")
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-@bot.callback_query_handler(func=lambda call: 
+class DummyServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is Running 24/7!")
+
+def run_web():
+    server = HTTPServer(('0.0.0.0', 8080), DummyServer)
+    server.serve_forever()
+
+print("⚡ Starting Web Server & Promo Bot...")
+threading.Thread(target=run_web, daemon=True).start()
+bot.infinity_polling()
