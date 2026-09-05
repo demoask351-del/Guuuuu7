@@ -331,5 +331,21 @@ def save_rate_key(m, key):
         bot.send_message(ADMIN_ID, "❌ Invalid number.")
 
 print("Bot started...")
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class DummyServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is Running 24/7!")
+
+def run_web():
+    server = HTTPServer(('0.0.0.0', 8080), DummyServer)
+    server.serve_forever()
+
+print("⚡ Starting Web Server & Promo Bot...")
+threading.Thread(target=run_web, daemon=True).start()
 bot.infinity_polling()
+
                       
