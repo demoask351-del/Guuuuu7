@@ -1,18 +1,23 @@
 import sqlite3
 import telebot
 from telebot import types
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 BOT_TOKEN = "7657021317:AAH0yKQqbrQw2OMnxJCokSP9jYXtTi_BKyw"
 ADMIN_ID = 7161571409
-BOT_USERNAME = "Earning_With_Ask_Bot"
+
+# Fetch actual bot credentials directly from Telegram
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
+BOT_INFO = bot.get_me()
+BOT_USERNAME = BOT_INFO.username
+BOT_ID = BOT_INFO.id
 
 REQUIRED_CHANNELS = [
     {"name": "Proof Channel", "username": "@botlikeproof"},
     {"name": "Earning Channel 1", "username": "@eraningwithask"},
     {"name": "Earning Channel 2", "username": "@eraningwithask9"}
 ]
-
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 conn = sqlite3.connect("promotion.db", check_same_thread=False)
 c = conn.cursor()
@@ -200,21 +205,21 @@ def add_camp(call):
     if get_coins(uid) < cost:
         bot.answer_callback_query(call.id, f"Kam se kam {cost} coins chahiye!", show_alert=True)
         return
-    msg = bot.send_message(call.message.chat.id, f"1. Bot @{BOT_USERNAME} ko channel me ADMIN banao.\n2. Username bhejo (@MyChannel):")
+    msg = bot.send_message(call.message.chat.id, f"1. Bot <b>@{BOT_USERNAME}</b> (ID: <code>{BOT_ID}</code>) ko apne channel me ADMIN banayein.\n2. Channel ka Public Username bhejein (@MyChannel):")
     bot.register_next_step_handler(msg, step_verify_admin)
 
 def step_verify_admin(m):
     ch_u = m.text.strip()
     if not ch_u.startswith("@"):
-        bot.send_message(m.chat.id, "❌ '@' se likho.")
+        bot.send_message(m.chat.id, "❌ Format galat hai! '@' ke sath dalein (e.g. @MyChannel).")
         return
     try:
-        b = bot.get_chat_member(ch_u, bot.get_me().id)
-        if b.status != "administrator":
-            bot.send_message(m.chat.id, "❌ Bot Admin nahi hai!")
+        b = bot.get_chat_member(ch_u, BOT_ID)
+        if b.status not in ["administrator", "creator"]:
+            bot.send_message(m.chat.id, f"❌ Bot @{BOT_USERNAME} aapke channel me Admin nahi hai! Pehle admin banayein fir try karein.")
             return
     except Exception:
-        bot.send_message(m.chat.id, "❌ Bot channel read nahi kar pa raha.")
+        bot.send_message(m.chat.id, "❌ Bot channel ko verify nahi kar paya! Ensure karein ki channel Public hai aur bot usme Admin add ho chuka hai.")
         return
     cost = get_setting('cost_per_member', 15)
     msg = bot.send_message(m.chat.id, f"✅ Verified! Kitne members chahiye? (1 = {cost} Coins):")
@@ -223,6 +228,9 @@ def step_verify_admin(m):
 def step_save_camp(m, ch_u):
     try:
         cnt = int(m.text.strip())
+        if cnt <= 0:
+            bot.send_message(m.chat.id, "❌ Kam se kam 1 member enter karein.")
+            return
         cost = get_setting('cost_per_member', 15)
         tot = cnt * cost
         uid = m.from_user.id
@@ -330,10 +338,7 @@ def save_rate_key(m, key):
     except Exception:
         bot.send_message(ADMIN_ID, "❌ Invalid number.")
 
-print("Bot started...")
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
+# --- RENDER WEB SERVICE PORT SERVER ---
 class DummyServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -344,6 +349,7 @@ def run_web():
     server = HTTPServer(('0.0.0.0', 8080), DummyServer)
     server.serve_forever()
 
-print("⚡ Starting Web Server & Promo Bot...")
+print(f"⚡ Starting Web Server & Bot @{BOT_USERNAME} (ID: {BOT_ID})...")
 threading.Thread(target=run_web, daemon=True).start()
 bot.infinity_polling()
+    
